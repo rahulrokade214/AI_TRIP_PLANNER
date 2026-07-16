@@ -1,152 +1,233 @@
 import streamlit as st
 import requests
 import datetime
+import os
 
-BASE_URL = "http://localhost:8000"  # Backend endpoint
+# Falls back to localhost for local dev; set BASE_URL as an env var
+# in deployment (Cloud Run, etc.) to point at the live backend.
+BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
 
 st.set_page_config(
     page_title="Travel Planner",
-    page_icon="🌍",
-    layout="centered",
-    initial_sidebar_state="collapsed",
+    page_icon="🧭",
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
 # ----------------------------------------------------------------
-# Custom CSS — Claude.ai-style: warm cream bg, serif greeting,
-# terracotta accent, borderless messages, pill composer
-# Content is vertically + horizontally centered in the viewport
-# until a conversation starts.
+# Professional theme: deep teal + slate, clean sans-serif,
+# native st.chat_message bubbles (fixes markdown/code-fence
+# rendering issues from the old hand-rolled HTML bubbles).
 # ----------------------------------------------------------------
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=Inter:wght@400;500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
 
     :root {
-        --bg: #F4F1EA;
+        --bg: #F7F9FA;
         --surface: #FFFFFF;
-        --text: #3D3929;
-        --text-muted: #83786B;
-        --accent: #D97757;
-        --accent-hover: #C15F3C;
-        --border: #E8E4D9;
+        --text: #1A2B33;
+        --text-muted: #64748B;
+        --accent: #0F6B62;
+        --accent-hover: #0B5049;
+        --accent-soft: #E6F3F1;
+        --border: #E2E8F0;
     }
 
-    .stApp { background-color: var(--bg); }
+    html {
+        color-scheme: light !important;
+    }
+
+    .stApp { background-color: var(--bg) !important; }
     #MainMenu, footer, header {visibility: hidden;}
 
     html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif;
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        color: var(--text) !important;
     }
 
-    /* Center everything vertically in the viewport */
+    /* Force readable text everywhere — prevents dark-mode/browser
+       theme inheritance from making titles or chat text invisible. */
+    h1, h2, h3, p, li, span, label {
+        color: var(--text) !important;
+    }
+    div[data-testid="stChatMessage"] p,
+    div[data-testid="stChatMessage"] li,
+    div[data-testid="stMarkdownContainer"] {
+        color: var(--text) !important;
+    }
+    div[data-testid="stCaptionContainer"] {
+        color: var(--text-muted) !important;
+    }
+
     .block-container {
-        max-width: 720px;
-        min-height: 100vh;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
+        max-width: 860px;
         padding-top: 2rem;
-        padding-bottom: 2rem;
+        padding-bottom: 6rem;
     }
 
-    /* Greeting — serif, Claude-style */
-    .greeting {
-        font-family: 'Source Serif 4', serif;
-        font-size: 2.1rem;
-        font-weight: 400;
-        color: var(--accent);
-        margin-bottom: 0.3rem;
-        letter-spacing: -0.01em;
-    }
-    .greeting-sub {
-        font-size: 1rem;
-        color: var(--text-muted);
-        margin-bottom: 2.5rem;
-    }
-
-    /* Messages — minimal, borderless like Claude.ai */
-    .msg-row {
-        display: flex;
-        margin: 1.4rem 0;
-    }
-    .msg-row.user { justify-content: flex-end; }
-    .msg-row.assistant { justify-content: flex-start; }
-
-    .msg-user {
+    /* ---------------- Sidebar ---------------- */
+    section[data-testid="stSidebar"] {
         background-color: var(--surface);
-        border: 1px solid var(--border);
-        color: var(--text);
-        padding: 0.75rem 1.1rem;
-        border-radius: 18px;
-        max-width: 75%;
-        font-size: 0.98rem;
-        line-height: 1.55;
+        border-right: 1px solid var(--border);
     }
-
-    .msg-assistant {
-        color: var(--text);
-        padding: 0 0.2rem;
-        max-width: 100%;
-        font-size: 0.98rem;
-        line-height: 1.7;
+    .sb-brand {
+        font-size: 1.15rem;
+        font-weight: 700;
+        color: var(--accent);
+        margin-bottom: 0.2rem;
     }
-    .msg-assistant h1, .msg-assistant h2, .msg-assistant h3 {
-        font-family: 'Source Serif 4', serif;
-        color: var(--text);
-        font-weight: 600;
+    .sb-tagline {
+        font-size: 0.82rem;
+        color: var(--text-muted);
+        margin-bottom: 1.6rem;
     }
-    .assistant-label {
+    .sb-label {
         font-size: 0.78rem;
         font-weight: 600;
-        color: var(--accent);
+        color: var(--text-muted);
         text-transform: uppercase;
         letter-spacing: 0.04em;
-        margin-bottom: 0.5rem;
+        margin: 1.2rem 0 0.5rem 0;
     }
-
-    /* Composer — pill bar like Claude.ai */
-    div[data-testid="stForm"] {
-        background-color: var(--surface);
-        border: 1.5px solid var(--border);
-        border-radius: 26px;
-        padding: 0.5rem 0.6rem;
-        box-shadow: 0 4px 18px rgba(61, 57, 41, 0.06);
-    }
-    div[data-testid="stForm"] input {
-        border: none !important;
-        background: transparent !important;
-        font-size: 1rem;
+    .sb-tip {
+        font-size: 0.85rem;
         color: var(--text);
-        padding: 0.7rem 0.6rem;
-    }
-    div[data-testid="stForm"] input:focus {
-        box-shadow: none !important;
-        outline: none !important;
-    }
-    div[data-testid="stForm"] input::placeholder {
-        color: var(--text-muted);
+        background: var(--accent-soft);
+        border-radius: 10px;
+        padding: 0.6rem 0.8rem;
+        margin-bottom: 0.5rem;
+        line-height: 1.4;
     }
 
-    div[data-testid="stFormSubmitButton"] button {
-        background-color: var(--accent);
-        color: #FFFFFF;
+    /* ---------------- Header ---------------- */
+    .app-header {
+        display: flex;
+        align-items: center;
+        gap: 0.7rem;
+        margin-bottom: 0.3rem;
+    }
+    .app-header .icon {
+        font-size: 1.7rem;
+    }
+    .app-title {
+        font-size: 1.6rem;
+        font-weight: 700;
+        color: var(--text) !important;
+        margin: 0;
+    }
+    .app-subtitle {
+        font-size: 0.95rem;
+        color: var(--text-muted) !important;
+        margin: 0 0 1.6rem 2.4rem;
+    }
+
+    /* ---------------- Chat bubbles (native st.chat_message) ---------------- */
+    div[data-testid="stChatMessage"] {
+        background-color: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 0.4rem 0.2rem;
+        margin-bottom: 0.9rem;
+        box-shadow: 0 1px 3px rgba(15, 23, 33, 0.04);
+    }
+
+    /* ---------------- Chat input (native st.chat_input) ---------------- */
+    /* The outer fixed-bottom wrapper Streamlit renders around chat_input
+       defaults to the app's dark theme if the browser prefers dark mode.
+       Force it light explicitly, not just the inner pill. */
+    div[data-testid="stBottom"],
+    div[data-testid="stBottomBlockContainer"],
+    div[data-testid="stChatInputContainer"] {
+        background-color: var(--bg) !important;
+    }
+    div[data-testid="stChatInput"] {
+        background-color: var(--surface) !important;
         border-radius: 999px;
-        border: none;
-        padding: 0.55rem 1.4rem;
-        font-weight: 500;
-        font-size: 0.92rem;
-        transition: background-color 0.15s ease;
+        border: 1.5px solid var(--border) !important;
+        box-shadow: 0 4px 18px rgba(15, 23, 33, 0.06);
     }
-    div[data-testid="stFormSubmitButton"] button:hover {
-        background-color: var(--accent-hover);
-        color: #FFFFFF;
+    div[data-testid="stChatInput"]:focus-within {
+        border: 1.5px solid var(--accent) !important;
+        outline: none !important;
+        box-shadow: 0 4px 18px rgba(15, 23, 33, 0.06) !important;
+    }
+    div[data-testid="stChatInput"] textarea:focus {
+        outline: none !important;
+        box-shadow: none !important;
+        border: none !important;
+    }
+    div[data-testid="stChatInput"] * {
+        background-color: transparent !important;
+    }
+    textarea, input {
+        color-scheme: light !important;
+        background-color: var(--surface) !important;
+        color: var(--text) !important;
+    }
+    div[data-testid="stChatInput"] textarea {
+        font-size: 0.98rem;
+        color: var(--text) !important;
+        background-color: transparent !important;
+    }
+    div[data-testid="stChatInput"] textarea::placeholder {
+        color: var(--text-muted) !important;
+        opacity: 1 !important;
+    }
+    div[data-testid="stChatInput"] button {
+        background-color: var(--accent) !important;
+        color: #FFFFFF !important;
     }
 
-    .empty-hint {
+    /* ---------------- All Streamlit buttons ---------------- */
+    /* Buttons are native <button> elements, subject to the same
+       browser dark-mode color-scheme issue as the chat textarea.
+       Force them light everywhere, not just inside columns. */
+    button {
+        color-scheme: light !important;
+    }
+    div[data-testid="stButton"] button,
+    div[data-testid="stFormSubmitButton"] button {
+        background-color: var(--surface) !important;
+        color: var(--text) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 10px;
+        font-weight: 500;
+    }
+    div[data-testid="stButton"] button:hover,
+    div[data-testid="stFormSubmitButton"] button:hover {
+        border-color: var(--accent) !important;
+        color: var(--accent) !important;
+        background-color: var(--accent-soft) !important;
+    }
+    div[data-testid="stButton"] button p,
+    div[data-testid="stFormSubmitButton"] button p {
+        color: inherit !important;
+    }
+
+    /* ---------------- Quick-start chips ---------------- */
+    div[data-testid="column"] .stButton button {
+        text-align: left;
+        padding: 0.6rem 0.9rem;
+        font-size: 0.86rem;
+        width: 100%;
+    }
+
+    /* ---------------- Empty state ---------------- */
+    .empty-state {
+        text-align: center;
+        padding: 3.5rem 1rem;
         color: var(--text-muted);
-        font-size: 0.92rem;
-        margin-top: 0.5rem;
-        margin-bottom: 2rem;
+    }
+    .empty-state .icon {
+        font-size: 2.4rem;
+        margin-bottom: 0.6rem;
+    }
+    .empty-state .title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: var(--text);
+        margin-bottom: 0.3rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -157,72 +238,86 @@ st.markdown("""
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+def call_backend(question: str) -> str:
+    try:
+        response = requests.post(f"{BASE_URL}/query", json={"question": question}, timeout=120)
+        if response.status_code == 200:
+            return response.json().get("answer", "No answer returned.")
+        return (
+            f"Something went wrong on the backend (status {response.status_code}).\n\n"
+            f"```\n{response.text}\n```"
+        )
+    except Exception as e:
+        return (
+            "Couldn't reach the planner backend.\n\n"
+            f"`{e}`\n\n"
+            "Make sure your FastAPI server is running:\n"
+            "```\nuvicorn main:app --reload --port 8000\n```"
+        )
+
+def send_query(question: str):
+    st.session_state.messages.append({"role": "user", "content": question})
+    with st.spinner("Planning your trip..."):
+        answer = call_backend(question)
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": answer,
+        "time": datetime.datetime.now().strftime("%b %d, %H:%M"),
+    })
+
 # ----------------------------------------------------------------
-# Greeting header
+# Sidebar
 # ----------------------------------------------------------------
-st.markdown('<div class="greeting">Where would you like to go?</div>', unsafe_allow_html=True)
+with st.sidebar:
+    st.markdown('<div class="sb-brand">🧭 Travel Planner</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="sb-tagline">AI-powered trip planning — itineraries, budgets, and local tips.</div>',
+        unsafe_allow_html=True,
+    )
+
+    if st.button("＋ New conversation", use_container_width=True):
+        st.session_state.messages = []
+        st.rerun()
+
+    st.markdown('<div class="sb-label">Tips for better plans</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sb-tip">Mention your budget level — budget, mid-range, or luxury.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sb-tip">Include trip length and who\'s traveling (solo, couple, family).</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sb-tip">Ask follow-ups — "make it cheaper" or "add more nightlife."</div>', unsafe_allow_html=True)
+
+# ----------------------------------------------------------------
+# Header
+# ----------------------------------------------------------------
 st.markdown(
-    '<div class="greeting-sub">Tell me your destination and I\'ll put together a full plan — stays, spots, and budget.</div>',
+    '<div class="app-header"><span class="icon">🧭</span><h1 class="app-title">Where would you like to go?</h1></div>'
+    '<div class="app-subtitle">Tell me your destination and I\'ll put together a full plan — stays, spots, and budget.</div>',
     unsafe_allow_html=True,
 )
 
+# ----------------------------------------------------------------
+# Empty state + quick starts
+# ----------------------------------------------------------------
+if not st.session_state.messages:
+    st.markdown(
+        '<div class="empty-state"><div class="icon">🗺️</div>'
+        '<div class="title">Start planning your next trip</div>'
+        'Type your destination, dates, and budget to get started.</div>',
+        unsafe_allow_html=True,
+    )
 
-
+# ----------------------------------------------------------------
+# Chat history (native chat_message renders markdown/code correctly)
+# ----------------------------------------------------------------
 for msg in st.session_state.messages:
-    if msg["role"] == "user":
-        st.markdown(
-            f'<div class="msg-row user"><div class="msg-user">{msg["content"]}</div></div>',
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            f'<div class="msg-row assistant"><div class="msg-assistant">'
-            f'<div class="assistant-label">Travel Planner · {msg["time"]}</div>'
-            f'{msg["content"]}'
-            f'</div></div>',
-            unsafe_allow_html=True,
-        )
+    avatar = "🧑" if msg["role"] == "user" else "🧭"
+    with st.chat_message(msg["role"], avatar=avatar):
+        if msg["role"] == "assistant" and "time" in msg:
+            st.caption(f"Travel Planner · {msg['time']}")
+        st.markdown(msg["content"])
 
 # ----------------------------------------------------------------
-# Composer
+# Composer — native st.chat_input, pinned to the bottom automatically
 # ----------------------------------------------------------------
-with st.form(key="query_form", clear_on_submit=True):
-    col1, col2 = st.columns([6, 1])
-    with col1:
-        user_input = st.text_input(
-            "User Input",
-            placeholder="Plan a trip to Goa for 5 days",
-            label_visibility="collapsed",
-        )
-    with col2:
-        submit_button = st.form_submit_button("Send")
-
-if submit_button and user_input.strip():
-    st.session_state.messages.append({"role": "user", "content": user_input})
-
-    with st.spinner("Planning your trip..."):
-        try:
-            payload = {"question": user_input}
-            response = requests.post(f"{BASE_URL}/query", json=payload, timeout=120)
-
-            if response.status_code == 200:
-                answer = response.json().get("answer", "No answer returned.")
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": answer,
-                    "time": datetime.datetime.now().strftime("%b %d, %H:%M"),
-                })
-            else:
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": f"Something went wrong on the backend.\n\n```\n{response.text}\n```",
-                    "time": datetime.datetime.now().strftime("%b %d, %H:%M"),
-                })
-        except Exception as e:
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": f"Couldn't reach the planner backend.\n\n`{e}`\n\nMake sure your FastAPI server is running:\n```\nuvicorn main:app --reload --port 8000\n```",
-                "time": datetime.datetime.now().strftime("%b %d, %H:%M"),
-            })
-
+user_input = st.chat_input("Plan a trip to Goa for 5 days")
+if user_input and user_input.strip():
+    send_query(user_input)
     st.rerun()
