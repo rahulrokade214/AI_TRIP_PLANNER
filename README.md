@@ -1,6 +1,6 @@
 # AI Travel Planner
 
-🔗 Live Site: https://rahul-ai-powered-portfolio.onrender.com If the website is not working, please close it and open it again or reload it.
+🔗 Live Site: https://travel-planner-frontend-fnhj.onrender.com If the website is not working, please close it and open it again or reload it.
 
 🤖 AI-powered Travel Planner Agent built with LangGraph, FastAPI & Streamlit. Generates personalized itineraries, weather, attractions, budgets, and currency conversion.
 
